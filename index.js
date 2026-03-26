@@ -29,9 +29,11 @@ function fetchHtml(url) {
 
 app.post('/scrape', async (req, res) => {
   const { url, waitTime = 3000, timeout = 30000 } = req.body;
+  console.log(`[SCRAPE START] ${url} | timeout: ${timeout}`);
   if (!url) return res.status(400).json({ error: 'URL is required' });
 
   const requestTimeout = setTimeout(() => {
+    console.log(`[SCRAPE FORCE TIMEOUT] ${url}`);
     if (!res.headersSent) {
       res.status(500).json({ error: 'request_timeout', url });
     }
@@ -50,33 +52,47 @@ app.post('/scrape', async (req, res) => {
     const page = await browser.newPage();
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
     await page.setViewport({ width: 1280, height: 800 });
+
+    console.log(`[SCRAPE GOTO] ${url}`);
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeout });
+
     await new Promise(r => setTimeout(r, waitTime));
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await new Promise(r => setTimeout(r, 1000));
     let html = await page.content();
 
     const linkCount = (html.match(/<a\s/gi) || []).length;
+    console.log(`[SCRAPE LINKS] ${url} | links: ${linkCount}`);
     if (linkCount <= 5) {
       try {
+        console.log(`[SCRAPE FALLBACK FETCH] ${url}`);
         html = await fetchHtml(url);
-      } catch(e) {}
+      } catch(e) {
+        console.log(`[SCRAPE FALLBACK FAIL] ${url} | ${e.message}`);
+      }
     }
 
     clearTimeout(requestTimeout);
+    console.log(`[SCRAPE DONE] ${url}`);
     res.json({ html, url, status: 'success' });
 
   } catch (error) {
+    console.log(`[SCRAPE PUPPETEER ERROR] ${url} | ${error.message}`);
     try {
       const html = await fetchHtml(url);
       clearTimeout(requestTimeout);
+      console.log(`[SCRAPE FALLBACK DONE] ${url}`);
       res.json({ html, url, status: 'success_fallback' });
     } catch(e) {
       clearTimeout(requestTimeout);
+      console.log(`[SCRAPE FINAL ERROR] ${url} | ${e.message}`);
       res.status(500).json({ error: error.message, url });
     }
   } finally {
-    if (browser) await browser.close();
+    if (browser) {
+      await browser.close();
+      console.log(`[SCRAPE BROWSER CLOSED] ${url}`);
+    }
   }
 });
 
